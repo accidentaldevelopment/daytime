@@ -29,7 +29,13 @@ async fn main() {
 
     let (shutdown_tx, _) = broadcast::channel(1);
 
-    let tcp_server = match TcpListener::bind(format!("{}:{}", opts.address, opts.port)).await {
+    tracing::debug!(
+        host = %opts.address,
+        port = %opts.port,
+        "server listen info"
+    );
+
+    let tcp_server = match TcpListener::bind((opts.address.as_str(), opts.port)).await {
         Ok(s) => s,
         Err(err) => {
             tracing::error!(?err, "error starting TCP server");
@@ -45,7 +51,7 @@ async fn main() {
 
     let tcp_server = tcp_server.run(shutdown_tx.subscribe());
 
-    let udp_server = match UdpSocket::bind(format!("{}:{}", opts.address, opts.port)).await {
+    let udp_server = match UdpSocket::bind((opts.address.as_str(), opts.port)).await {
         Ok(s) => s,
         Err(err) => {
             tracing::error!(?err, "error starting UDP server");
