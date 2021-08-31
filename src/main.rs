@@ -37,21 +37,33 @@ async fn main() {
         }
     };
 
+    tracing::info!(
+        host = %opts.address,
+        port = %opts.port,
+        "tcp server listening"
+    );
+
     let tcp_server = tcp_server.run(shutdown_tx.subscribe());
 
     let udp_server = match UdpSocket::bind(format!("{}:{}", opts.address, opts.port)).await {
         Ok(s) => s,
         Err(err) => {
-            tracing::error!(?err, "error starting TCP server");
+            tracing::error!(?err, "error starting UDP server");
             process::exit(2);
         }
     };
+
+    tracing::info!(
+        host = %opts.address,
+        port = %opts.port,
+        "udp server listening"
+    );
 
     let udp_server = udp_server.run(shutdown_tx.subscribe());
 
     tokio::spawn(signal_handler(shutdown_tx));
 
-    tokio::join!(tcp_server, udp_server);
+    futures_util::future::join(udp_server, tcp_server).await;
 }
 
 async fn signal_handler(shutdown: Sender<SignalKind>) {
