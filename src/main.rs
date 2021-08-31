@@ -21,9 +21,9 @@ mod server;
 #[tokio::main]
 #[allow(clippy::semicolon_if_nothing_returned)]
 async fn main() {
-    init_logging("info");
-
     let opts = Opts::parse();
+
+    init_logging(&opts.log_level);
 
     tracing::debug!(?opts);
 
@@ -81,6 +81,9 @@ struct Opts {
 
     #[clap(short, long, env("DAYTIME_PORT"), default_value = "13")]
     pub port: u16,
+
+    #[clap(short, long, env("DAYTIME_LOG_LEVEL"), default_value = "info")]
+    pub log_level: String,
 }
 
 fn init_logging(default_level: &str) {
