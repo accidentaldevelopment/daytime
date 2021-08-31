@@ -11,9 +11,9 @@ use tokio::{
 };
 use tracing::subscriber::set_global_default;
 use tracing_log::LogTracer;
-use tracing_subscriber::{fmt::format::FmtSpan, layer::SubscriberExt, EnvFilter, Registry};
+use tracing_subscriber::{layer::SubscriberExt, EnvFilter, Registry};
 
-use crate::server::Server;
+use crate::server::{Server, SignalName};
 
 mod protocol;
 mod server;
@@ -72,9 +72,14 @@ async fn main() {
     futures_util::future::join(udp_server, tcp_server).await;
 }
 
-async fn signal_handler(shutdown: Sender<SignalKind>) {
-    let _sig = signal::ctrl_c().await;
-    let _send = shutdown.send(SignalKind::interrupt());
+async fn signal_handler(shutdown: Sender<SignalName>) {
+    let sigint = signal::ctrl_c();
+    let mut sigterm = signal::unix::signal(SignalKind::terminate()).unwrap();
+    tokio::select! {
+        _ = sigint => shutdown.send(SignalName::SigInt).unwrap(),
+        _ = sigterm.recv() => shutdown.send(SignalName::SigTerm).unwrap()
+    };
+    // let _send = shutdown.send(SignalKind::interrupt());
 }
 
 #[derive(Debug, Clap)]
@@ -96,7 +101,7 @@ fn init_logging(default_level: &str) {
     LogTracer::init().expect("log tracer");
     let filter = EnvFilter::try_from_env("DAYTIME_LOG_LEVEL")
         .unwrap_or_else(|_| EnvFilter::new(default_level));
-    let subscriber = tracing_subscriber::fmt::layer().with_span_events(FmtSpan::FULL);
+    let subscriber = tracing_subscriber::fmt::layer();
     let registry = Registry::default().with(filter).with(subscriber);
     set_global_default(registry).expect("set registry");
 }

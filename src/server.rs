@@ -3,11 +3,16 @@ use chrono::Utc;
 use tokio::{
     io::AsyncWriteExt,
     net::{TcpListener, UdpSocket},
-    signal::unix::SignalKind,
     sync::broadcast,
 };
 
-type Shutdown = broadcast::Receiver<SignalKind>;
+type Shutdown = broadcast::Receiver<SignalName>;
+
+#[derive(Debug, Clone)]
+pub enum SignalName {
+    SigInt,
+    SigTerm,
+}
 
 #[async_trait]
 pub trait Server {
