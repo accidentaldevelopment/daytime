@@ -16,7 +16,7 @@ pub trait Server {
 
 #[async_trait]
 impl Server for TcpListener {
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self, shutdown), fields(proto = "tcp"))]
     async fn run(self, mut shutdown: Shutdown) {
         loop {
             tokio::select! {
@@ -41,7 +41,7 @@ impl Server for TcpListener {
 
 #[async_trait]
 impl Server for UdpSocket {
-    #[tracing::instrument]
+    #[tracing::instrument(skip(self, shutdown), fields(proto = "udp"))]
     async fn run(self, mut shutdown: Shutdown) {
         let mut buf = [0_u8; 2];
         loop {
