@@ -6,9 +6,9 @@ use tokio::{
     sync::broadcast,
 };
 
-type Shutdown = broadcast::Receiver<SignalName>;
+pub type Shutdown = broadcast::Receiver<SignalName>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum SignalName {
     SigInt,
     SigTerm,

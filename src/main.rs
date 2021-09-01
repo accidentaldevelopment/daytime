@@ -1,9 +1,11 @@
 #![deny(clippy::all, clippy::pedantic, rust_2018_idioms)]
 
-use std::process;
+use crate::server::{Server, SignalName};
+use clap::{AppSettings, Clap};
 
-use clap::Clap;
 use protocol::Protocol;
+use server::Shutdown;
+use std::process;
 use tokio::{
     net::{TcpListener, UdpSocket},
     signal::{self, unix::SignalKind},
@@ -13,15 +15,18 @@ use tracing::subscriber::set_global_default;
 use tracing_log::LogTracer;
 use tracing_subscriber::{layer::SubscriberExt, EnvFilter, Registry};
 
-use crate::server::{Server, SignalName};
-
 mod protocol;
 mod server;
 
 #[tokio::main]
 #[allow(clippy::semicolon_if_nothing_returned)]
 async fn main() {
-    let opts = Opts::parse();
+    let opts = {
+        let mut o = Opts::parse();
+        o.proto.sort();
+        o.proto.dedup();
+        o
+    };
 
     init_logging(&opts.log_level);
 
@@ -35,7 +40,47 @@ async fn main() {
         "server listen info"
     );
 
-    let tcp_server = match TcpListener::bind((opts.address.as_str(), opts.port)).await {
+    let tasks = opts
+        .proto
+        .iter()
+        .map(|proto| match proto {
+            Protocol::Tcp => tokio::spawn(start_tcp_listener(
+                opts.address.clone(),
+                opts.port,
+                shutdown_tx.subscribe(),
+            )),
+            Protocol::Udp => tokio::spawn(start_udp_listener(
+                opts.address.clone(),
+                opts.port,
+                shutdown_tx.subscribe(),
+            )),
+        })
+        .collect::<Vec<_>>();
+
+    signal_handler(shutdown_tx.clone()).await;
+
+    futures_util::future::join_all(tasks).await;
+
+    tracing::info!("shutting down");
+}
+
+async fn signal_handler(shutdown: Sender<SignalName>) {
+    let sigint = signal::ctrl_c();
+    let mut sigterm = signal::unix::signal(SignalKind::terminate()).unwrap();
+    let sig = tokio::select! {
+        _ = sigint => SignalName::SigInt,
+        _ = sigterm.recv() => SignalName::SigTerm
+    };
+    tracing::info!(?sig, "received signal");
+    tracing::trace!(?sig, "sending signal");
+    match shutdown.send(sig) {
+        Ok(_) => tracing::trace!(?sig, "signal sent"),
+        Err(err) => tracing::error!(?err, "error signaling workers"),
+    }
+}
+
+async fn start_tcp_listener(addr: String, port: u16, shutdown: Shutdown) {
+    let tcp_server = match TcpListener::bind((addr.as_str(), port)).await {
         Ok(s) => s,
         Err(err) => {
             tracing::error!(?err, "error starting TCP server");
@@ -44,14 +89,16 @@ async fn main() {
     };
 
     tracing::info!(
-        host = %opts.address,
-        port = %opts.port,
+        host = %addr,
+        %port,
         "tcp server listening"
     );
 
-    let tcp_server = tcp_server.run(shutdown_tx.subscribe());
+    tcp_server.run(shutdown).await;
+}
 
-    let udp_server = match UdpSocket::bind((opts.address.as_str(), opts.port)).await {
+async fn start_udp_listener(addr: String, port: u16, shutdown: Shutdown) {
+    let udp_server = match UdpSocket::bind((addr.as_str(), port)).await {
         Ok(s) => s,
         Err(err) => {
             tracing::error!(?err, "error starting UDP server");
@@ -60,35 +107,23 @@ async fn main() {
     };
 
     tracing::info!(
-        host = %opts.address,
-        port = %opts.port,
+        host = %addr,
+        %port,
         "udp server listening"
     );
 
-    let udp_server = udp_server.run(shutdown_tx.subscribe());
-
-    tokio::spawn(signal_handler(shutdown_tx));
-
-    futures_util::future::join(udp_server, tcp_server).await;
-}
-
-async fn signal_handler(shutdown: Sender<SignalName>) {
-    let sigint = signal::ctrl_c();
-    let mut sigterm = signal::unix::signal(SignalKind::terminate()).unwrap();
-    tokio::select! {
-        _ = sigint => shutdown.send(SignalName::SigInt).unwrap(),
-        _ = sigterm.recv() => shutdown.send(SignalName::SigTerm).unwrap()
-    };
-    // let _send = shutdown.send(SignalKind::interrupt());
+    udp_server.run(shutdown).await;
 }
 
 #[derive(Debug, Clap)]
+#[clap(setting = AppSettings::ColoredHelp)]
 struct Opts {
     #[clap(short, long, env("DAYTIME_ADDR"), default_value = "0.0.0.0")]
     pub address: String,
 
-    #[clap(short('P'), long, env("DAYTIME_PROTO"))]
-    pub proto: Option<Protocol>,
+    /// Comma-delimited list of protocols to listen on.
+    #[clap(short('P'), long, env("DAYTIME_PROTO"), use_delimiter(true), default_values=&["tcp", "udp"])]
+    pub proto: Vec<Protocol>,
 
     #[clap(short, long, env("DAYTIME_PORT"), default_value = "13")]
     pub port: u16,
