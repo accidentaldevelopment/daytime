@@ -22,6 +22,15 @@ jobs:
           toolchain: stable
           target: ${{ matrix.target }}
           override: true
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - uses: actions-rs/cargo@v1
         with:
           command: build
@@ -40,7 +49,7 @@ jobs:
           path: build/*
 
   build_macos:
-    name: Build Non-Linux
+    name: Build macOS
     runs-on: macos-11
     strategy:
       matrix:
@@ -54,6 +63,15 @@ jobs:
           toolchain: stable
           target: ${{ matrix.target }}
           override: true
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - uses: actions-rs/cargo@v1
         with:
           command: build
